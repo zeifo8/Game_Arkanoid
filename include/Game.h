@@ -1,43 +1,53 @@
-#include <SFML/Graphics.hpp>
+﻿#pragma once
+#include <memory>
 #include <vector>
-#include <string>
-
-#include "Paddle.h"
-#include "Ball.h"
+#include <SFML/Graphics.hpp>
 #include "Block.h"
+#include "Ball.h"
+#include "Paddle.h"
 #include "Bonus.h"
 
-class Game {
+class Game
+{
 public:
+    static Game& instance();
+
     Game(unsigned w, unsigned h);
     void run();
+
+    Ball& ball() { return *m_ball; }
+    Paddle& paddle() { return *m_pad; }
+
+    void setSpeedTimer(sf::Time t) { m_speedTimer = t; }
+    void setExpandTimer(sf::Time t) { m_expandTimer = t; }
 
 private:
     void handleEvents();
     void update(sf::Time dt);
     void render();
     void initBlocks();
-    void resetBallOnPaddle();
-    void clearAllBonuses();
+    void spawnBonus(const sf::Vector2f& pos);
+    void restartBall();
+    void processCollisions();
 
-    sf::RenderWindow   m_win;
-    const sf::Time     m_dt;
-    Paddle             m_paddle;
-    Ball               m_ball;
-    std::vector<Block> m_blocks;
-    std::vector<Bonus> m_bonuses;
+    sf::RenderWindow m_win;
+    sf::Time m_fixedDt{ sf::seconds(1.f / 144.f) };
 
-    sf::Font  m_font;
-    sf::Text  m_scoreText;
-    sf::Text  m_livesText;
-    sf::Text  m_overText;
+    std::vector<std::unique_ptr<GameObject>> m_objs;
+    Ball* m_ball{ nullptr };
+    Paddle* m_pad{ nullptr };
 
-    int       m_score;
-    int       m_lives;
-    bool      m_gameOver;
+    sf::Font m_font;
+    sf::Text m_scoreTxt, m_livesTxt, m_overTxt;
 
-    sf::Time  m_speedTimer{};
-    sf::Time  m_expandTimer{};
+    int m_score{ 0 }, m_lives{ 3 };
+    bool m_gameOver{ false };
 
-    sf::FloatRect getExtendedBounds(const Block& blk) const;
+    int m_totalBlocks{ 0 };
+    int m_bonusLimit{ 0 };
+    int m_bonusCount{ 0 };
+
+    sf::Time m_speedTimer{}, m_expandTimer{};
+
+    static Game* s_instance;
 };

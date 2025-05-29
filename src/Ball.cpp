@@ -1,124 +1,144 @@
 ﻿#include "Ball.h"
-#include <SFML/Graphics.hpp>
+#include "Paddle.h"
+#include "Block.h"
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <optional>
 
-namespace {
-    constexpr float PI = 3.14159265358979323846f;
-    constexpr float DEG = PI / 180.f;
+static float toRad(float deg) { return deg * 3.1415926535f / 180.f; }
 
-    sf::Vector2f dir(float deg) { return { std::cos(deg * DEG), std::sin(deg * DEG) }; }
-    sf::Vector2f norm(const sf::Vector2f& v)
-    {
-        float l = std::hypot(v.x, v.y); return l ? sf::Vector2f{ v.x / l, v.y / l } : sf::Vector2f{ 0,-1 };
-    }
+Ball::Ball(float w, float h) : m_winW(w), m_winH(h)
+{
+    float R = 8.f;
+    m_shape.setRadius(R);
+    m_shape.setOrigin({ R,R });
+    m_shape.setFillColor(sf::Color::White);
+    std::srand(unsigned(std::time(nullptr)));
 }
 
-Ball::Ball(float w, float h)
-    : m_winW(w), m_winH(h), m_baseSpeed(300.f), m_speed(m_baseSpeed)
-    , m_attached(true), m_sticky(false), m_protect(false), m_dropped(false)
+void Ball::attachTo(const sf::Vector2f& p)
 {
-    float R = 8.f;  m_shape.setRadius(R); m_shape.setOrigin({ R,R }); m_shape.setFillColor(sf::Color::White);
-    std::srand((unsigned)std::time(nullptr));
-}
-
-void Ball::attachToPaddle(const sf::Vector2f& padC)
-{
-    m_attached = true; m_dropped = false; m_vel = { 0,0 }; m_shape.setPosition({ padC.x, padC.y - m_shape.getRadius() - 1.f });
+    m_stuck = true;
+    m_dropped = false;
+    m_vel = { 0,0 };
+    m_shape.setPosition({ p.x, p.y - m_shape.getRadius() - 1 });
 }
 
 void Ball::launchRandom()
 {
-    if (!m_attached) return;
-    float ang = -90.f + (std::rand() % 120 - 60);
-    m_vel = dir(ang) * m_speed; m_attached = false;
+    if (!m_stuck) return;
+    float ang = -90 + (std::rand() % 120 - 60);
+    m_vel = norm({ std::cos(toRad(ang)), std::sin(toRad(ang)) }) * m_speed;
+    m_stuck = false;
 }
 
-void Ball::invertVelocityX() { m_vel.x = -m_vel.x; }
-void Ball::invertVelocityY() { m_vel.y = -m_vel.y; }
+sf::Vector2f Ball::norm(const sf::Vector2f& v) const
+{
+    float len = std::hypot(v.x, v.y);
+    return len > 1e-5f ? sf::Vector2f{ v.x / len, v.y / len } : sf::Vector2f{ 0,-1 };
+}
 
-void Ball::setSpeedMultiplier(float k) { if (k > 0) { m_speed = m_baseSpeed * k; m_vel = norm(m_vel) * m_speed; } }
-void Ball::resetSpeed() { m_speed = m_baseSpeed; m_vel = norm(m_vel) * m_speed; }
+void Ball::setSpeedMultiplier(float k)
+{
+    if (k <= 0) return;
+    m_speed = m_base * k;
+    m_vel = norm(m_vel) * m_speed;
+}
+void Ball::increaseBaseSpeed(float k)
+{
+    if (k <= 0) return;
+    m_base = std::min(m_base * k, 700.f);
+    m_speed = m_base;
+    if (!m_stuck) m_vel = norm(m_vel) * m_speed;
+}
+void Ball::resetSpeed()
+{
+    m_speed = m_base;
+    m_vel = norm(m_vel) * m_speed;
+}
+void Ball::resetToDefaultSpeed()
+{
+    m_base = kDefaultBase;
+    resetSpeed();
+}
+
 void Ball::enableSticky() { m_sticky = true; }
 void Ball::enableProtect() { m_protect = true; }
 
 void Ball::randomizeDirection()
 {
-    float delta;
-    do { delta = (std::rand() % 61 - 30); }
-    while (std::abs(delta) < 10);
-    float ang = std::atan2(m_vel.y, m_vel.x) / DEG + delta;
-    m_vel = dir(ang);
-    if (std::abs(m_vel.y) < 0.1736f)
-        m_vel.y = (m_vel.y >= 0 ? 0.1736f : -0.1736f);
-    m_vel = norm(m_vel) * m_speed;
+    if (m_stuck) return;
+    float ang{};
+    do { ang = float(std::rand() % 360); } while (std::abs(std::sin(toRad(ang))) < 0.25f);
+    m_vel = norm({ std::cos(toRad(ang)), std::sin(toRad(ang)) }) * m_speed;
 }
 
-void Ball::update(sf::Time dt, const sf::FloatRect& paddle)
+void Ball::update(sf::Time dt)
 {
-    if (m_attached) return;
+    if (m_stuck) return;
 
     m_shape.move(m_vel * dt.asSeconds());
-    auto pos = m_shape.getPosition(); float R = m_shape.getRadius();
+    auto pos = m_shape.getPosition();
+    float R = m_shape.getRadius();
 
-    if (pos.x - R < 0) { pos.x = R; invertVelocityX(); }
-    if (pos.x + R > m_winW) { pos.x = m_winW - R; invertVelocityX(); }
-    if (pos.y - R < 0) { pos.y = R; invertVelocityY(); }
+    if (pos.x - R < 0) { pos.x = R;           m_vel.x = -m_vel.x; }
+    if (pos.x + R > m_winW) { pos.x = m_winW - R;  m_vel.x = -m_vel.x; }
+    if (pos.y - R < 0) { pos.y = R;           m_vel.y = -m_vel.y; }
 
-    if (pos.y + R >= m_winH) {
-        if (m_protect) { m_protect = false; pos.y = m_winH - R; invertVelocityY(); }
-        else { m_dropped = true; m_attached = true; m_shape.setPosition(pos); return; }
-    }
-
-    if (m_vel.y > 0)
+    if (pos.y + R >= m_winH)
     {
-        auto ballBounds = m_shape.getGlobalBounds();
-        if (auto inter = ballBounds.findIntersection(paddle))
-        {
-            float R = m_shape.getRadius();
-            sf::Vector2f pos = m_shape.getPosition();
-            pos.y = paddle.position.y - R - 0.1f;
-
-            invertVelocityY();
-
-            float rel = (pos.x - paddle.position.x) / paddle.size.x - 0.5f;
-            m_vel.x += rel * m_speed * 2.f;
-            m_vel = norm(m_vel) * m_speed;
-
-            if (m_sticky)
-            {
-                attachToPaddle({
-                    paddle.position.x + paddle.size.x * 0.5f,
-                    paddle.position.y
-                    });
-                m_sticky = false;
-            }
-
-            m_shape.setPosition(pos);
-        }
+        if (m_protect) { m_protect = false; pos.y = m_winH - R; m_vel.y = -m_vel.y; }
+        else { m_dropped = true; m_stuck = true; }
     }
-
-    if (std::abs(m_vel.y) < 0.01f * m_speed)
-    {
-        m_vel.y = (m_vel.y >= 0 ? 1.f : -1.f); m_vel = norm(m_vel) * m_speed;
-    }
-
     m_shape.setPosition(pos);
 }
 
-void Ball::render(sf::RenderWindow& w) { w.draw(m_shape); }
-sf::FloatRect Ball::getBounds() const { return m_shape.getGlobalBounds(); }
-
-bool Ball::dropped() const { return m_dropped; }
-void Ball::clearDropped() { m_dropped = false; }
-bool Ball::isAttached() const { return m_attached; }
-
-void Ball::increaseBaseSpeed(float k)
+void Ball::onCollision(GameObject& other)
 {
-    if (k <= 0.f) return;
-    m_baseSpeed *= k;
-    m_speed = m_baseSpeed;
-    if (!m_attached)
-        m_vel = norm(m_vel) * m_speed;
+    if (!m_alive) return;
+
+    if (auto* pad = dynamic_cast<Paddle*>(&other))
+    {
+        if (m_vel.y > 0)
+        {
+            auto pb = pad->getBounds();
+            auto pos = m_shape.getPosition();
+            float R = m_shape.getRadius();
+
+            pos.y = pb.position.y - R - .1f;
+            m_shape.setPosition(pos);
+            m_vel.y = -m_vel.y;
+
+            float rel = (pos.x - pb.position.x) / pb.size.x - 0.5f;
+            m_vel.x += rel * m_speed * 2.f;
+            m_vel = norm(m_vel) * m_speed;
+
+            if (m_sticky) {
+                attachTo({ pb.position.x + pb.size.x * 0.5f, pb.position.y });
+                m_sticky = false;
+            }
+        }
+    }
+    else if (auto* blk = dynamic_cast<Block*>(&other))
+    {
+        std::optional<sf::FloatRect> inter = getBounds().findIntersection(blk->getBounds());
+        if (!inter) return;
+
+        auto pos = m_shape.getPosition();
+        auto br = blk->getBounds();
+        float R = m_shape.getRadius();
+
+        if (inter->size.x < inter->size.y)
+        {
+            pos.x = pos.x < br.position.x ? br.position.x - R - 1.f : br.position.x + br.size.x + R + 1.f;
+            m_vel.x = -m_vel.x;
+        }
+        else
+        {
+            pos.y = pos.y < br.position.y ? br.position.y - R - 1.f : br.position.y + br.size.y + R + 1.f;
+            m_vel.y = -m_vel.y;
+        }
+        m_shape.setPosition(pos);
+    }
 }

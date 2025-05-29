@@ -1,39 +1,65 @@
 ﻿#include "Block.h"
+#include "Ball.h"
 
-static const sf::Color SHADE[4] = { {144,238,144}, {60,179,113}, {34,139,34}, {0,100,0} };
+static const sf::Color SHADE[4] = {
+    {144,238,144}, {60,179,113}, {34,139,34}, {0,100,0}
+};
 
-Block::Block(bool indestructible, int strength, bool hasBonus, bool speedUp,
-    const sf::Vector2f& size, const sf::Vector2f& pos)
-    : m_indestructible(indestructible)
-    , m_hits(indestructible ? 1 : std::clamp(strength, 1, 4))
-    , m_hasBonus(hasBonus)
-    , m_speedUp(speedUp)
-    , m_destroyed(false)
+Block::Block(const sf::Vector2f& size, const sf::Vector2f& pos, bool hasBonus)
+    : m_shape(size)
+    , m_bonus(hasBonus)
 {
-    m_shape.setSize(size);
     m_shape.setPosition(pos);
-    m_shape.setFillColor(indestructible ? sf::Color(128, 128, 128) : SHADE[m_hits - 1]);
-    if (speedUp && !indestructible)
-    {
-        m_shape.setOutlineThickness(-3.f);
-        m_shape.setOutlineColor(sf::Color::Red);
-    }
 }
 
-void Block::render(sf::RenderWindow& win) const
+void Block::onCollision(GameObject& other)
 {
-    if (!m_destroyed) win.draw(m_shape);
+    if (!isAlive()) return;
+    if (auto* ball = dynamic_cast<Ball*>(&other))
+        handleHit(*ball);
 }
 
-bool Block::hit()
+NormalBlock::NormalBlock(int hp, const sf::Vector2f& size, const sf::Vector2f& pos, bool hasBonus)
+    : Block(size, pos, hasBonus)
+    , m_hp(std::clamp(hp, 1, 4))
 {
-    if (m_indestructible) return false;
-    if (--m_hits == 0) { m_destroyed = true; return true; }
-    m_shape.setFillColor(SHADE[m_hits - 1]);
-    return false;
+    m_shape.setFillColor(SHADE[m_hp - 1]);
 }
 
-sf::FloatRect Block::getBounds() const { return m_shape.getGlobalBounds(); }
-bool Block::isDestroyed()   const { return m_destroyed; }
-bool Block::containsBonus() const { return m_hasBonus; }
-bool Block::isSpeedUp()     const { return m_speedUp; }
+void NormalBlock::handleHit(Ball&)
+{
+    if (--m_hp == 0)
+        destroy();
+    else
+        m_shape.setFillColor(SHADE[m_hp - 1]);
+}
+
+IndestructibleBlock::IndestructibleBlock(const sf::Vector2f& size, const sf::Vector2f& pos)
+    : Block(size, pos, false)
+{
+    m_shape.setFillColor({ 128,128,128 });
+}
+
+void IndestructibleBlock::handleHit(Ball&)
+{
+
+}
+
+SpeedUpBlock::SpeedUpBlock(int hp, const sf::Vector2f& size, const sf::Vector2f& pos, bool hasBonus)
+    : Block(size, pos, hasBonus)
+    , m_hp(std::clamp(hp, 1, 4))
+{
+    m_shape.setFillColor(SHADE[m_hp - 1]);
+    m_shape.setOutlineThickness(-3.f);
+    m_shape.setOutlineColor(sf::Color::Red);
+}
+
+void SpeedUpBlock::handleHit(Ball& ball)
+{
+    ball.increaseBaseSpeed(1.1f);
+
+    if (--m_hp == 0)
+        destroy();
+    else
+        m_shape.setFillColor(SHADE[m_hp - 1]);
+}
